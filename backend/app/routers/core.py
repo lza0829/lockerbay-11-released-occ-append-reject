@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException
 
 from app.db import connect
+from app.modules import released_occ_append_reject as released_reject
 from app.seed import overdue_hours
 from app.services import bay as bay_svc
 from app.services import ingest as ingest_svc
@@ -60,7 +61,7 @@ def list_quarantine():
     conn = connect()
     try:
         rows = conn.execute(
-            "SELECT id, reason, member_json, created_at FROM quarantine ORDER BY id DESC"
+            "SELECT id, reason, member_json, created_at, event_id, occupancy_id FROM quarantine ORDER BY id DESC"
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -79,9 +80,33 @@ def occupancy_proofs():
         conn.close()
 
 
+@router.get("/released-rejects")
+def list_released_rejects(occupancy_id: str | None = None):
+    """只读：已释放占用追加拒收的搁置清单。"""
+    conn = connect()
+    try:
+        return released_reject.list_rejects(conn, occupancy_id)
+    finally:
+        conn.close()
+
+
+@router.get("/occupancies/{occupancy_id}/reject-proof")
+def released_reject_proof(occupancy_id: str):
+    """只读：查看该占用的历史行、核证与拒收记录。"""
+    conn = connect()
+    try:
+        result = released_reject.proof(conn, occupancy_id)
+        if result["occupancy"] is None:
+            raise HTTPException(404, "占用不存在")
+        return result
+    finally:
+        conn.close()
+
+
 @router.post("/ingest/run")
-def run_ingest():
-    return ingest_svc.run_batch()
+def run_ingest(body: dict | None = Body(default=None)):
+    fixture = (body or {}).get("fixture", "ingest_batch.json")
+    return ingest_svc.run_batch(fixture)
 
 
 @router.get("/settings")

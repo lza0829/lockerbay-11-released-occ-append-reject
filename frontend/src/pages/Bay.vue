@@ -17,6 +17,7 @@ onMounted(async () => {
       <div class="stat"><b>{{ overview.occupied }}</b><span>占用</span></div>
       <div class="stat"><b>{{ overview.free }}</b><span>空闲</span></div>
       <div class="stat"><b>{{ overview.open_occupancies }}</b><span>开放占用账</span></div>
+      <div class="stat"><b>{{ overview.released_rejects }}</b><span>已释放拒收</span></div>
     </div>
     <section v-for="cab in bay" :key="cab.id" class="cabinet panel">
       <h2>{{ cab.label }} <small>{{ cab.id }} · {{ cab.site }}</small></h2>

@@ -31,11 +31,13 @@ onMounted(async () => {
       <h2 style="margin:0 0 .5rem;font-size:1rem">搁置</h2>
       <p v-if="!q.length" class="sub">暂无搁置。</p>
       <table v-else>
-        <thead><tr><th>id</th><th>原因</th><th>时刻</th></tr></thead>
+        <thead><tr><th>id</th><th>原因</th><th>占用</th><th>事件</th><th>时刻</th></tr></thead>
         <tbody>
           <tr v-for="item in q" :key="item.id">
             <td>{{ item.id }}</td>
             <td>{{ item.reason }}</td>
+            <td><code>{{ item.occupancy_id || '—' }}</code></td>
+            <td><code>{{ item.event_id || '—' }}</code></td>
             <td>{{ item.created_at }}</td>
           </tr>
         </tbody>

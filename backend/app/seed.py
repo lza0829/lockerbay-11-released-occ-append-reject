@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 
 from app.db import FIXTURES_DIR, connect
+from app.modules import released_occ_append_reject as released_reject
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -49,7 +50,9 @@ CREATE TABLE IF NOT EXISTS quarantine (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   reason TEXT NOT NULL,
   member_json TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  event_id TEXT,
+  occupancy_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ingest_batches (
@@ -68,6 +71,28 @@ CREATE TABLE IF NOT EXISTS occupancy_proofs (
   event_ids_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- 已释放占用是不可变历史账：任何字段的 UPDATE 一律 ABORT。
+-- 追加事件只能进搁置表，禁止把 released 改回 occupied 来“接住”事件。
+CREATE TRIGGER IF NOT EXISTS trg_occupancies_released_immutable
+BEFORE UPDATE ON occupancies
+WHEN OLD.status IN ('released', 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'released occupancy is immutable');
+END;
+"""
+
+# 旧库补列：CREATE TABLE IF NOT EXISTS 不会给既有表加列。
+_MIGRATIONS = (
+    ("quarantine", "event_id", "TEXT"),
+    ("quarantine", "occupancy_id", "TEXT"),
+)
+
+_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_quarantine_occ
+  ON quarantine(reason, occupancy_id);
+CREATE INDEX IF NOT EXISTS idx_quarantine_event
+  ON quarantine(reason, event_id);
 """
 
 
@@ -79,12 +104,21 @@ def overdue_hours(conn) -> int:
 def init_db():
     conn = connect()
     conn.executescript(SCHEMA)
+    _migrate(conn)
+    conn.executescript(_INDEXES)
     if not conn.execute("SELECT 1 FROM settings WHERE key='overdue_hours'").fetchone():
         conn.execute("INSERT INTO settings(key, value) VALUES ('overdue_hours', '48')")
     if conn.execute("SELECT COUNT(*) AS c FROM cabinets").fetchone()["c"] == 0:
         _seed(conn)
     conn.commit()
     conn.close()
+
+
+def _migrate(conn):
+    for table, column, decl in _MIGRATIONS:
+        cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 def _seed(conn):
@@ -103,6 +137,10 @@ def _seed(conn):
             (cell["id"], cell["cabinet_id"], cell["code"], cell.get("size_code", "M"), "free"),
         )
     for ev in sorted(data.get("events", []), key=lambda e: (e["event_ts"], e["id"])):
+        rejection = released_reject.classify(conn, ev)
+        if rejection is not None:
+            released_reject.record_reject(conn, rejection)
+            continue
         conn.execute(
             "INSERT INTO parcel_events(id, cabinet_id, cell_id, event_type, event_ts, tracking_no, payload_json, channel) VALUES (?,?,?,?,?,?,?,?)",
             (

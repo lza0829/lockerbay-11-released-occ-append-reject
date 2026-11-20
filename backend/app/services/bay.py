@@ -9,6 +9,9 @@ def overview(conn):
         "open_occupancies": conn.execute(
             "SELECT COUNT(*) AS c FROM occupancies WHERE status='occupied'"
         ).fetchone()["c"],
+        "released_rejects": conn.execute(
+            "SELECT COUNT(*) AS c FROM quarantine WHERE reason='append_rejected'"
+        ).fetchone()["c"],
     }
 
 
